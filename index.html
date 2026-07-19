@@ -1,0 +1,669 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DEVFLOW — Ticket Board</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://www.gstatic.com/firebasejs/10.13.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.1/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.1/firebase-firestore-compat.js"></script>
+<style>
+  :root{
+    --bg: #14160F;
+    --bg-raised: #1B1E15;
+    --surface: #21251A;
+    --surface-hover: #292E1F;
+    --border: #333828;
+    --border-strong: #454C36;
+    --text-primary: #ECE9DD;
+    --text-secondary: #A3A48F;
+    --text-muted: #6E7060;
+    --accent: #E8A33D;
+    --accent-dim: #4A3B1E;
+    --teal: #4FA98C;
+    --teal-dim: #1C3B32;
+    --red: #D9635B;
+    --red-dim: #3E211E;
+    --blue: #5B8DD9;
+    --blue-dim: #1F2C42;
+    --gray-chip: #4A4C3C;
+    --font-mono: 'JetBrains Mono', monospace;
+    --font-sans: 'Inter', -apple-system, sans-serif;
+    --radius: 6px;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    background: var(--bg);
+    color: var(--text-primary);
+    font-family: var(--font-sans);
+    font-size:14px;
+    line-height:1.5;
+  }
+  ::selection{ background: var(--accent-dim); }
+  ::-webkit-scrollbar{ height:8px; width:8px; }
+  ::-webkit-scrollbar-thumb{ background: var(--border-strong); border-radius:4px; }
+  ::-webkit-scrollbar-track{ background: transparent; }
+
+  .topbar{
+    display:flex; align-items:center; justify-content:space-between;
+    padding:18px 24px; border-bottom:1px solid var(--border);
+    flex-wrap:wrap; gap:12px;
+  }
+  .brand{ display:flex; align-items:baseline; gap:10px; }
+  .brand-mark{ font-family:var(--font-mono); font-weight:700; font-size:18px; letter-spacing:-0.5px; color:var(--accent); }
+  .brand-tag{ font-size:12px; color:var(--text-muted); font-family:var(--font-mono); }
+  .topbar-actions{ display:flex; align-items:center; gap:10px; }
+
+  select, input[type=text], input[type=email], input[type=password], input[type=date], textarea{
+    background:var(--surface); color:var(--text-primary);
+    border:1px solid var(--border); border-radius:var(--radius);
+    padding:8px 10px; font-family:var(--font-sans); font-size:13px;
+    outline:none;
+  }
+  select:focus, input:focus, textarea:focus{ border-color:var(--border-strong); }
+  textarea{ resize:vertical; font-family:var(--font-sans); }
+
+  button{
+    font-family:var(--font-sans); cursor:pointer; border-radius:var(--radius);
+    font-size:13px; font-weight:500; border:1px solid var(--border);
+    background:var(--surface); color:var(--text-primary); padding:8px 14px;
+    transition: background .12s ease, border-color .12s ease;
+  }
+  button:hover{ background:var(--surface-hover); border-color:var(--border-strong); }
+  button.primary{ background:var(--accent); color:#241905; border-color:var(--accent); font-weight:600; }
+  button.primary:hover{ background:#f0ae4d; }
+  button.ghost{ background:transparent; border-color:transparent; padding:6px 8px; }
+  button.ghost:hover{ background:var(--surface); }
+  button.danger{ color:var(--red); }
+  button:disabled{ opacity:.35; cursor:not-allowed; }
+
+  .filterbar{
+    display:flex; gap:10px; padding:14px 24px; flex-wrap:wrap;
+    border-bottom:1px solid var(--border); align-items:center;
+  }
+  .filterbar input[type=text]{ min-width:220px; flex:1; }
+
+  .board{ display:flex; gap:14px; padding:20px 24px; overflow-x:auto; align-items:flex-start; }
+  .column{
+    background:var(--bg-raised); border:1px solid var(--border); border-radius:10px;
+    min-width:250px; max-width:250px; flex-shrink:0;
+    display:flex; flex-direction:column; max-height:calc(100vh - 210px);
+  }
+  .column-head{ padding:12px 14px; border-bottom:1px solid var(--border); display:flex; align-items:center; justify-content:space-between; }
+  .column-title{ font-size:12px; font-weight:600; letter-spacing:.06em; text-transform:uppercase; color:var(--text-secondary); }
+  .column-count{ font-family:var(--font-mono); font-size:11px; color:var(--text-muted); background:var(--surface); padding:2px 7px; border-radius:10px; }
+  .column-body{ padding:10px; overflow-y:auto; display:flex; flex-direction:column; gap:8px; flex:1; }
+  .column-empty{ font-size:12px; color:var(--text-muted); text-align:center; padding:20px 8px; }
+
+  .card{ background:var(--surface); border:1px solid var(--border); border-left:3px solid var(--gray-chip); border-radius:6px; padding:10px 11px; cursor:pointer; }
+  .card:hover{ border-color:var(--border-strong); background:var(--surface-hover); }
+  .card-top{ display:flex; justify-content:space-between; align-items:center; margin-bottom:6px; }
+  .card-id{ font-family:var(--font-mono); font-size:11px; color:var(--text-muted); }
+  .card-title{ font-size:13px; font-weight:500; margin:0 0 8px; color:var(--text-primary); }
+  .card-labels{ display:flex; flex-wrap:wrap; gap:4px; margin-bottom:8px; }
+  .chip{ font-size:10px; padding:2px 7px; border-radius:20px; font-family:var(--font-mono); background:var(--surface-hover); color:var(--text-secondary); border:1px solid var(--border); }
+  .card-foot{ display:flex; justify-content:space-between; align-items:center; }
+  .avatar{ width:20px; height:20px; border-radius:50%; background:var(--accent-dim); color:var(--accent); font-size:9px; font-weight:700; display:flex; align-items:center; justify-content:center; font-family:var(--font-mono); }
+  .due{ font-size:10px; color:var(--text-muted); font-family:var(--font-mono); }
+  .due.overdue{ color:var(--red); }
+
+  .priority-pill{ font-size:10px; padding:2px 7px; border-radius:20px; font-weight:600; text-transform:uppercase; letter-spacing:.03em; }
+  .p-critical{ background:var(--red-dim); color:var(--red); }
+  .p-high{ background:var(--accent-dim); color:var(--accent); }
+  .p-medium{ background:var(--blue-dim); color:var(--blue); }
+  .p-low{ background:var(--teal-dim); color:var(--teal); }
+
+  .modal-overlay{ position:fixed; inset:0; background:rgba(0,0,0,.55); display:flex; align-items:flex-start; justify-content:center; padding:5vh 20px; z-index:50; overflow-y:auto; }
+  .modal{ background:var(--bg-raised); border:1px solid var(--border-strong); border-radius:12px; width:100%; max-width:520px; padding:22px; margin-bottom:5vh; }
+  .modal-head{ display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:16px; }
+  .modal-head h2{ margin:0; font-size:16px; font-weight:600; }
+  .field{ margin-bottom:14px; }
+  .field label{ display:block; font-size:12px; color:var(--text-secondary); margin-bottom:5px; font-weight:500; }
+  .field input, .field select, .field textarea{ width:100%; }
+  .row2{ display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+  .label-check-group{ display:flex; flex-wrap:wrap; gap:8px; }
+  .label-check{ display:flex; align-items:center; gap:5px; font-size:12px; background:var(--surface); border:1px solid var(--border); border-radius:20px; padding:5px 10px; cursor:pointer; }
+  .label-check input{ margin:0; }
+  .modal-actions{ display:flex; justify-content:flex-end; gap:8px; margin-top:18px; }
+
+  .detail-meta{ display:grid; grid-template-columns:1fr 1fr; gap:12px; margin:14px 0; font-size:12px; }
+  .detail-meta div span{ display:block; color:var(--text-muted); font-size:11px; margin-bottom:3px; }
+  .detail-desc{ background:var(--surface); border:1px solid var(--border); border-radius:8px; padding:12px; font-size:13px; white-space:pre-wrap; color:var(--text-secondary); margin-bottom:14px; }
+  .commit-box{ background:#0D0F09; border:1px solid var(--border); border-radius:8px; padding:10px 12px; font-family:var(--font-mono); font-size:12px; color:var(--teal); display:flex; justify-content:space-between; align-items:center; gap:10px; margin-bottom:14px; }
+  .status-track{ display:flex; gap:6px; flex-wrap:wrap; margin-bottom:16px; }
+  .status-track button{ font-size:11px; padding:6px 10px; }
+  .status-track button.active{ background:var(--accent); color:#241905; border-color:var(--accent); font-weight:600; }
+
+  .toast{ position:fixed; bottom:20px; left:50%; transform:translateX(-50%); background:var(--surface); border:1px solid var(--border-strong); padding:10px 18px; border-radius:8px; font-size:13px; z-index:100; opacity:0; transition:opacity .2s ease; pointer-events:none; }
+  .toast.show{ opacity:1; }
+  .role-badge{ font-family:var(--font-mono); font-size:10px; color:var(--text-muted); align-self:center; }
+
+  /* Auth screen */
+  .auth-screen{ min-height:100vh; display:flex; align-items:center; justify-content:center; padding:20px; }
+  .auth-card{ background:var(--bg-raised); border:1px solid var(--border); border-radius:12px; padding:32px; width:100%; max-width:360px; }
+  .auth-card h1{ font-family:var(--font-mono); font-size:20px; color:var(--accent); margin:0 0 4px; }
+  .auth-card p.sub{ color:var(--text-muted); font-size:12px; margin:0 0 22px; }
+  .auth-tabs{ display:flex; gap:6px; margin-bottom:18px; }
+  .auth-tabs button{ flex:1; }
+  .auth-tabs button.active{ background:var(--accent); color:#241905; border-color:var(--accent); font-weight:600; }
+  .auth-error{ color:var(--red); font-size:12px; margin:-6px 0 14px; min-height:14px; }
+  .auth-status{ color:var(--text-muted); font-size:12px; text-align:center; margin-top:14px; }
+  .pending-box{ text-align:center; }
+  .pending-box i{ font-style:normal; }
+
+  /* Admin panel */
+  .admin-panel{ padding:0 24px 24px; }
+  .admin-panel h3{ font-size:13px; text-transform:uppercase; letter-spacing:.06em; color:var(--text-secondary); margin:0 0 12px; }
+  .allow-row{ display:flex; gap:8px; align-items:center; margin-bottom:8px; font-size:13px; }
+  .allow-row .em{ flex:1; font-family:var(--font-mono); font-size:12px; }
+  .add-allow{ display:flex; gap:8px; margin-top:10px; }
+  .add-allow input{ flex:1; }
+  .hidden{ display:none !important; }
+
+  @media (max-width:640px){
+    .row2{ grid-template-columns:1fr; }
+    .detail-meta{ grid-template-columns:1fr; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ============ AUTH SCREEN ============ -->
+<div id="authScreen" class="auth-screen">
+  <div class="auth-card">
+    <h1>devflow</h1>
+    <p class="sub">Ticket board · sign in to continue</p>
+    <div class="auth-tabs">
+      <button id="tabLogin" class="active">Log in</button>
+      <button id="tabSignup">Sign up</button>
+    </div>
+    <div class="field">
+      <label>Email</label>
+      <input type="email" id="authEmail" placeholder="you@company.com">
+    </div>
+    <div class="field">
+      <label>Password</label>
+      <input type="password" id="authPassword" placeholder="At least 6 characters">
+    </div>
+    <div class="auth-error" id="authError"></div>
+    <button class="primary" id="authSubmit" style="width:100%;">Log in</button>
+    <div class="auth-status" id="authStatus"></div>
+  </div>
+</div>
+
+<!-- ============ PENDING APPROVAL SCREEN ============ -->
+<div id="pendingScreen" class="auth-screen hidden">
+  <div class="auth-card pending-box">
+    <h1>devflow</h1>
+    <p class="sub" style="margin-bottom:18px;">Account created</p>
+    <p style="font-size:13px; color:var(--text-secondary);">
+      Your account isn't approved for this board yet. Ask an admin to add
+      <i id="pendingEmail" style="color:var(--accent);"></i> to the allow list, then reload this page.
+    </p>
+    <button id="signOutPending" style="margin-top:16px;">Sign out</button>
+  </div>
+</div>
+
+<!-- ============ APP ============ -->
+<div id="app" class="hidden">
+  <div class="topbar">
+    <div class="brand">
+      <span class="brand-mark">devflow</span>
+      <span class="brand-tag">ticket board · git-referenced</span>
+    </div>
+    <div class="topbar-actions">
+      <span class="role-badge" id="whoami"></span>
+      <button class="primary" id="newTicketBtn">+ New ticket</button>
+      <button class="ghost" id="signOutBtn">Sign out</button>
+    </div>
+  </div>
+
+  <div class="filterbar">
+    <input type="text" id="searchInput" placeholder="Search tickets by title or ID...">
+    <select id="priorityFilter">
+      <option value="">All priorities</option>
+      <option value="critical">Critical</option>
+      <option value="high">High</option>
+      <option value="medium">Medium</option>
+      <option value="low">Low</option>
+    </select>
+    <select id="labelFilter">
+      <option value="">All labels</option>
+      <option value="bug">bug</option>
+      <option value="feature">feature</option>
+      <option value="security">security</option>
+      <option value="maintenance">maintenance</option>
+      <option value="documentation">documentation</option>
+      <option value="testing">testing</option>
+    </select>
+  </div>
+
+  <div class="board" id="board"></div>
+
+  <div class="admin-panel hidden" id="adminPanel">
+    <h3>Team access (admins only)</h3>
+    <div id="allowList"></div>
+    <div class="add-allow">
+      <input type="email" id="newAllowEmail" placeholder="teammate@company.com">
+      <select id="newAllowRole">
+        <option value="developer">Developer</option>
+        <option value="pm">Project manager</option>
+        <option value="admin">Administrator</option>
+      </select>
+      <button id="addAllowBtn">Add</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+/* =========================================================
+   1. FIREBASE CONFIG — replace with your own project's config
+   Firebase console → Project settings → General → Your apps → SDK setup
+========================================================= */
+const firebaseConfig = {
+  apiKey: "YOUR_API_KEY",
+  authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
+  projectId: "YOUR_PROJECT_ID",
+  storageBucket: "YOUR_PROJECT_ID.appspot.com",
+  messagingSenderId: "YOUR_SENDER_ID",
+  appId: "YOUR_APP_ID"
+};
+
+firebase.initializeApp(firebaseConfig);
+const auth = firebase.auth();
+const db = firebase.firestore();
+
+/* ========================================================= */
+
+const STATUSES = [
+  { key: 'backlog', label: 'Backlog' },
+  { key: 'todo', label: 'Todo' },
+  { key: 'in_progress', label: 'In progress' },
+  { key: 'code_review', label: 'Code review' },
+  { key: 'testing', label: 'Testing' },
+  { key: 'done', label: 'Done' }
+];
+const ALL_LABELS = ['bug','feature','security','maintenance','documentation','testing'];
+
+let tickets = [];
+let filters = { search: '', priority: '', label: '' };
+let currentUser = null;
+let currentRole = null;
+let ticketsUnsub = null;
+let allowlistUnsub = null;
+
+const board = document.getElementById('board');
+const toastEl = document.getElementById('toast');
+
+function showToast(msg){
+  toastEl.textContent = msg;
+  toastEl.classList.add('show');
+  setTimeout(()=> toastEl.classList.remove('show'), 2200);
+}
+
+/* ---------------- AUTH UI ---------------- */
+let authMode = 'login';
+const tabLogin = document.getElementById('tabLogin');
+const tabSignup = document.getElementById('tabSignup');
+const authSubmit = document.getElementById('authSubmit');
+const authError = document.getElementById('authError');
+const authStatus = document.getElementById('authStatus');
+
+tabLogin.addEventListener('click', () => {
+  authMode = 'login';
+  tabLogin.classList.add('active'); tabSignup.classList.remove('active');
+  authSubmit.textContent = 'Log in';
+  authError.textContent = '';
+});
+tabSignup.addEventListener('click', () => {
+  authMode = 'signup';
+  tabSignup.classList.add('active'); tabLogin.classList.remove('active');
+  authSubmit.textContent = 'Create account';
+  authError.textContent = '';
+});
+
+authSubmit.addEventListener('click', async () => {
+  const email = document.getElementById('authEmail').value.trim();
+  const password = document.getElementById('authPassword').value;
+  authError.textContent = '';
+  if(!email || !password){ authError.textContent = 'Enter an email and password.'; return; }
+  authSubmit.disabled = true;
+  authStatus.textContent = 'Working…';
+  try{
+    if(authMode === 'login'){
+      await auth.signInWithEmailAndPassword(email, password);
+    }else{
+      await auth.createUserWithEmailAndPassword(email, password);
+    }
+  }catch(e){
+    authError.textContent = friendlyAuthError(e);
+  }
+  authSubmit.disabled = false;
+  authStatus.textContent = '';
+});
+
+function friendlyAuthError(e){
+  const code = e.code || '';
+  if(code.includes('email-already-in-use')) return 'That email already has an account. Try logging in.';
+  if(code.includes('wrong-password') || code.includes('invalid-credential')) return 'Wrong email or password.';
+  if(code.includes('user-not-found')) return 'No account with that email. Try signing up.';
+  if(code.includes('weak-password')) return 'Password should be at least 6 characters.';
+  if(code.includes('invalid-email')) return 'That email address looks invalid.';
+  return e.message || 'Something went wrong.';
+}
+
+document.getElementById('signOutPending').addEventListener('click', () => auth.signOut());
+document.getElementById('signOutBtn').addEventListener('click', () => auth.signOut());
+
+/* ---------------- AUTH STATE / ALLOWLIST GATE ---------------- */
+auth.onAuthStateChanged(async (user) => {
+  detachListeners();
+  if(!user){
+    currentUser = null; currentRole = null;
+    showScreen('auth');
+    return;
+  }
+  currentUser = user;
+  const email = (user.email || '').toLowerCase();
+
+  try{
+    const doc = await db.collection('allowlist').doc(email).get();
+    if(doc.exists){
+      currentRole = doc.data().role || 'developer';
+      showScreen('app');
+      document.getElementById('whoami').textContent = `${email} · ${currentRole}`;
+      document.getElementById('adminPanel').classList.toggle('hidden', currentRole !== 'admin');
+      attachTicketsListener();
+      if(currentRole === 'admin') attachAllowlistListener();
+    }else{
+      document.getElementById('pendingEmail').textContent = email;
+      showScreen('pending');
+    }
+  }catch(e){
+    authError.textContent = 'Could not verify access: ' + (e.message || e);
+    showScreen('auth');
+  }
+});
+
+function showScreen(name){
+  document.getElementById('authScreen').classList.toggle('hidden', name !== 'auth');
+  document.getElementById('pendingScreen').classList.toggle('hidden', name !== 'pending');
+  document.getElementById('app').classList.toggle('hidden', name !== 'app');
+}
+
+function detachListeners(){
+  if(ticketsUnsub){ ticketsUnsub(); ticketsUnsub = null; }
+  if(allowlistUnsub){ allowlistUnsub(); allowlistUnsub = null; }
+}
+
+/* ---------------- TICKETS (REAL-TIME) ---------------- */
+function attachTicketsListener(){
+  ticketsUnsub = db.collection('tickets').orderBy('createdAt', 'desc')
+    .onSnapshot(snap => {
+      tickets = snap.docs.map(d => ({ firestoreId: d.id, ...d.data() }));
+      render();
+    }, err => showToast('Sync error: ' + err.message));
+}
+
+function nextTicketNumber(){
+  let max = 0;
+  tickets.forEach(t => {
+    const m = /TASK-(\d+)/.exec(t.id || '');
+    if(m) max = Math.max(max, parseInt(m[1], 10));
+  });
+  return max + 1;
+}
+function ticketId(num){ return 'TASK-' + String(num).padStart(3,'0'); }
+
+function initials(name){
+  if(!name) return '—';
+  const parts = name.trim().split(/\s+/);
+  return (parts[0][0] + (parts[1] ? parts[1][0] : '')).toUpperCase();
+}
+function isOverdue(dateStr, status){
+  if(!dateStr || status === 'done') return false;
+  return new Date(dateStr) < new Date(new Date().toDateString());
+}
+function matchesFilters(t){
+  const q = filters.search.trim().toLowerCase();
+  if(q && !((t.title||'').toLowerCase().includes(q) || (t.id||'').toLowerCase().includes(q))) return false;
+  if(filters.priority && t.priority !== filters.priority) return false;
+  if(filters.label && !(t.labels || []).includes(filters.label)) return false;
+  return true;
+}
+function escapeHtml(str){
+  const div = document.createElement('div');
+  div.textContent = str || '';
+  return div.innerHTML;
+}
+function formatDate(d){
+  const dt = new Date(d);
+  return dt.toLocaleDateString(undefined, { month:'short', day:'numeric' });
+}
+
+function render(){
+  board.innerHTML = '';
+  STATUSES.forEach(status => {
+    const col = document.createElement('div');
+    col.className = 'column';
+    const colTickets = tickets.filter(t => t.status === status.key && matchesFilters(t));
+
+    const head = document.createElement('div');
+    head.className = 'column-head';
+    head.innerHTML = `<span class="column-title">${status.label}</span><span class="column-count">${colTickets.length}</span>`;
+    col.appendChild(head);
+
+    const body = document.createElement('div');
+    body.className = 'column-body';
+    if(colTickets.length === 0){
+      const empty = document.createElement('div');
+      empty.className = 'column-empty';
+      empty.textContent = 'No tickets';
+      body.appendChild(empty);
+    }
+    colTickets.forEach(t => body.appendChild(renderCard(t)));
+    col.appendChild(body);
+    board.appendChild(col);
+  });
+}
+
+function renderCard(t){
+  const card = document.createElement('div');
+  card.className = 'card';
+  card.style.borderLeftColor = {
+    critical: 'var(--red)', high: 'var(--accent)', medium: 'var(--blue)', low: 'var(--teal)'
+  }[t.priority] || 'var(--gray-chip)';
+  const labelsHtml = (t.labels || []).map(l => `<span class="chip">${l}</span>`).join('');
+  const overdue = isOverdue(t.dueDate, t.status);
+  card.innerHTML = `
+    <div class="card-top">
+      <span class="card-id">${t.id}</span>
+      <span class="priority-pill p-${t.priority}">${t.priority}</span>
+    </div>
+    <p class="card-title">${escapeHtml(t.title)}</p>
+    <div class="card-labels">${labelsHtml}</div>
+    <div class="card-foot">
+      <span class="avatar" title="Owner: ${escapeHtml(t.owner || 'Unassigned')}">${initials(t.owner)}</span>
+      <span class="due ${overdue ? 'overdue' : ''}">${t.dueDate ? formatDate(t.dueDate) : 'No due date'}</span>
+    </div>
+  `;
+  card.addEventListener('click', () => openDetail(t.firestoreId));
+  return card;
+}
+
+/* ---------------- NEW TICKET ---------------- */
+document.getElementById('newTicketBtn').addEventListener('click', openNewTicketModal);
+
+function openNewTicketModal(){
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.innerHTML = `
+    <div class="modal">
+      <div class="modal-head"><h2>New ticket</h2><button class="ghost" id="closeNew">✕</button></div>
+      <div class="field"><label>Title</label><input type="text" id="f-title" placeholder="Fix login page validation error"></div>
+      <div class="field"><label>Description — what, why, expected result</label><textarea id="f-desc" rows="4" placeholder="What needs to be done, why it's needed, expected result..."></textarea></div>
+      <div class="row2">
+        <div class="field"><label>Priority</label>
+          <select id="f-priority">
+            <option value="critical">Critical — system unavailable</option>
+            <option value="high">High — important issue</option>
+            <option value="medium" selected>Medium — normal task</option>
+            <option value="low">Low — improvement</option>
+          </select>
+        </div>
+        <div class="field"><label>Due date</label><input type="date" id="f-due"></div>
+      </div>
+      <div class="row2">
+        <div class="field"><label>Owner</label><input type="text" id="f-owner" placeholder="firstname lastname"></div>
+        <div class="field"><label>Reviewer</label><input type="text" id="f-reviewer" placeholder="firstname lastname"></div>
+      </div>
+      <div class="field"><label>Labels</label>
+        <div class="label-check-group" id="f-labels">
+          ${ALL_LABELS.map(l => `<label class="label-check"><input type="checkbox" value="${l}"> ${l}</label>`).join('')}
+        </div>
+      </div>
+      <div class="modal-actions"><button id="cancelNew">Cancel</button><button class="primary" id="saveNew">Create ticket</button></div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  const close = () => overlay.remove();
+  overlay.addEventListener('click', e => { if(e.target === overlay) close(); });
+  overlay.querySelector('#closeNew').addEventListener('click', close);
+  overlay.querySelector('#cancelNew').addEventListener('click', close);
+
+  overlay.querySelector('#saveNew').addEventListener('click', async () => {
+    const title = overlay.querySelector('#f-title').value.trim();
+    if(!title){ showToast('Title is required'); return; }
+    const labels = Array.from(overlay.querySelectorAll('#f-labels input:checked')).map(i => i.value);
+    const ticket = {
+      id: ticketId(nextTicketNumber()),
+      title,
+      description: overlay.querySelector('#f-desc').value.trim(),
+      priority: overlay.querySelector('#f-priority').value,
+      dueDate: overlay.querySelector('#f-due').value,
+      owner: overlay.querySelector('#f-owner').value.trim(),
+      reviewer: overlay.querySelector('#f-reviewer').value.trim(),
+      labels,
+      status: 'backlog',
+      createdBy: currentUser.email,
+      createdAt: firebase.firestore.FieldValue.serverTimestamp()
+    };
+    try{
+      await db.collection('tickets').add(ticket);
+      close();
+      showToast(`${ticket.id} created`);
+    }catch(e){
+      showToast('Could not create ticket: ' + e.message);
+    }
+  });
+}
+
+/* ---------------- DETAIL / STATUS / DELETE ---------------- */
+function openDetail(firestoreId){
+  const t = tickets.find(x => x.firestoreId === firestoreId);
+  if(!t) return;
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.innerHTML = `
+    <div class="modal">
+      <div class="modal-head">
+        <div><span class="card-id">${t.id}</span><h2 style="margin-top:4px;">${escapeHtml(t.title)}</h2></div>
+        <button class="ghost" id="closeDetail">✕</button>
+      </div>
+      <div class="status-track" id="statusTrack"></div>
+      <div class="detail-desc">${escapeHtml(t.description) || 'No description provided.'}</div>
+      <div class="detail-meta">
+        <div><span>Priority</span><span class="priority-pill p-${t.priority}">${t.priority}</span></div>
+        <div><span>Due date</span>${t.dueDate ? formatDate(t.dueDate) : '—'}</div>
+        <div><span>Owner</span>${escapeHtml(t.owner) || 'Unassigned'}</div>
+        <div><span>Reviewer</span>${escapeHtml(t.reviewer) || 'Unassigned'}</div>
+        <div><span>Labels</span>${(t.labels||[]).join(', ') || '—'}</div>
+        <div><span>Created by</span>${escapeHtml(t.createdBy) || '—'}</div>
+      </div>
+      <div class="commit-box"><span>[${t.id}] ${escapeHtml(t.title)}</span><button class="ghost" id="copyCommit">Copy</button></div>
+      <div class="modal-actions"><button class="danger" id="deleteTicket">Delete</button><button id="closeDetail2">Close</button></div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  const track = overlay.querySelector('#statusTrack');
+  STATUSES.forEach(s => {
+    const btn = document.createElement('button');
+    btn.textContent = s.label;
+    if(s.key === t.status) btn.classList.add('active');
+    btn.addEventListener('click', async () => {
+      try{
+        await db.collection('tickets').doc(firestoreId).update({ status: s.key });
+        overlay.remove();
+        showToast(`${t.id} moved to ${s.label}`);
+      }catch(e){ showToast('Could not update: ' + e.message); }
+    });
+    track.appendChild(btn);
+  });
+
+  const close = () => overlay.remove();
+  overlay.addEventListener('click', e => { if(e.target === overlay) close(); });
+  overlay.querySelector('#closeDetail').addEventListener('click', close);
+  overlay.querySelector('#closeDetail2').addEventListener('click', close);
+
+  overlay.querySelector('#copyCommit').addEventListener('click', () => {
+    const text = `[${t.id}] ${t.title}`;
+    navigator.clipboard.writeText(text).then(() => showToast('Commit message copied')).catch(() => showToast(text));
+  });
+
+  const deleteBtn = overlay.querySelector('#deleteTicket');
+  if(currentRole !== 'admin' && currentRole !== 'pm') deleteBtn.disabled = true;
+  deleteBtn.addEventListener('click', async () => {
+    try{
+      await db.collection('tickets').doc(firestoreId).delete();
+      close();
+      showToast(`${t.id} deleted`);
+    }catch(e){ showToast('Only admins or PMs can delete tickets'); }
+  });
+}
+
+/* ---------------- ADMIN: ALLOWLIST MANAGEMENT ---------------- */
+function attachAllowlistListener(){
+  allowlistUnsub = db.collection('allowlist').onSnapshot(snap => {
+    const list = document.getElementById('allowList');
+    list.innerHTML = '';
+    snap.docs.forEach(d => {
+      const row = document.createElement('div');
+      row.className = 'allow-row';
+      row.innerHTML = `<span class="em">${d.id}</span><span class="chip">${d.data().role}</span>`;
+      if(d.id !== currentUser.email.toLowerCase()){
+        const rm = document.createElement('button');
+        rm.className = 'ghost'; rm.textContent = 'Remove';
+        rm.addEventListener('click', async () => {
+          await db.collection('allowlist').doc(d.id).delete();
+        });
+        row.appendChild(rm);
+      }
+      list.appendChild(row);
+    });
+  }, err => showToast('Allowlist sync error: ' + err.message));
+}
+
+document.getElementById('addAllowBtn').addEventListener('click', async () => {
+  const email = document.getElementById('newAllowEmail').value.trim().toLowerCase();
+  const role = document.getElementById('newAllowRole').value;
+  if(!email){ showToast('Enter an email'); return; }
+  try{
+    await db.collection('allowlist').doc(email).set({ role, addedBy: currentUser.email, addedAt: firebase.firestore.FieldValue.serverTimestamp() });
+    document.getElementById('newAllowEmail').value = '';
+    showToast(`${email} added as ${role}`);
+  }catch(e){ showToast('Could not add: ' + e.message); }
+});
+
+/* ---------------- FILTERS ---------------- */
+document.getElementById('searchInput').addEventListener('input', e => { filters.search = e.target.value; render(); });
+document.getElementById('priorityFilter').addEventListener('change', e => { filters.priority = e.target.value; render(); });
+document.getElementById('labelFilter').addEventListener('change', e => { filters.label = e.target.value; render(); });
+</script>
+</body>
+</html>

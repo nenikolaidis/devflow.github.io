@@ -1,0 +1,41 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    function myEmail() {
+      return request.auth.token.email.lower();
+    }
+    function isApproved() {
+      return isSignedIn() && exists(/databases/$(database)/documents/allowlist/$(myEmail()));
+    }
+    function myRole() {
+      return get(/databases/$(database)/documents/allowlist/$(myEmail())).data.role;
+    }
+    function isAdmin() {
+      return isApproved() && myRole() == 'admin';
+    }
+    function isAdminOrPM() {
+      return isApproved() && (myRole() == 'admin' || myRole() == 'pm');
+    }
+
+    // Tickets: any approved user can read/create/update.
+    // Only admins or PMs can delete (matches the process doc's access rules).
+    match /tickets/{ticketId} {
+      allow read: if isApproved();
+      allow create: if isApproved();
+      allow update: if isApproved();
+      allow delete: if isAdminOrPM();
+    }
+
+    // Allow list: a user can always read their own entry (so the app can
+    // tell them "pending approval"). Only admins can read the full list
+    // or add/remove people.
+    match /allowlist/{email} {
+      allow read: if isSignedIn() && myEmail() == email;
+      allow read, write: if isAdmin();
+    }
+  }
+}
