@@ -130,6 +130,30 @@
   .comment-empty{ font-size:12px; color:var(--text-muted); margin-bottom:10px; }
   .comment-add{ display:flex; gap:8px; margin-top:8px; }
   .comment-add textarea{ flex:1; }
+  .comment-delete{ margin-top:6px; }
+
+  .combo{ position:relative; }
+  .combo-list{ position:absolute; top:calc(100% + 2px); left:0; right:0; background:var(--surface); border:1px solid var(--border-strong); border-radius:8px; max-height:170px; overflow-y:auto; z-index:20; box-shadow:0 8px 20px rgba(0,0,0,.35); }
+  .combo-item{ padding:7px 10px; font-size:12px; cursor:pointer; display:flex; align-items:center; justify-content:space-between; }
+  .combo-item:hover{ background:var(--surface-hover); }
+  .combo-empty{ padding:7px 10px; font-size:12px; color:var(--text-muted); }
+
+  .subtoggle{ display:flex; gap:4px; }
+  .subtoggle button{ padding:6px 12px; font-size:12px; }
+  .subtoggle button.active{ background:var(--accent); color:#241905; border-color:var(--accent); font-weight:600; }
+
+  .table-wrap{ padding:0 24px 24px; overflow-x:auto; }
+  table.ticket-table{ width:100%; border-collapse:collapse; font-size:13px; }
+  table.ticket-table th{ text-align:left; padding:8px 10px; border-bottom:1px solid var(--border-strong); color:var(--text-secondary); font-size:11px; text-transform:uppercase; letter-spacing:.04em; cursor:pointer; user-select:none; white-space:nowrap; }
+  table.ticket-table th:hover{ color:var(--text-primary); }
+  table.ticket-table td{ padding:8px 10px; border-bottom:1px solid var(--border); vertical-align:middle; }
+  table.ticket-table td.mono{ font-family:var(--font-mono); font-size:11px; color:var(--text-muted); }
+  table.ticket-table tbody tr{ cursor:pointer; }
+  table.ticket-table tbody tr:hover{ background:var(--surface-hover); }
+
+  .link-box{ background:#0D0F09; border:1px solid var(--border); border-radius:8px; padding:10px 12px; margin-bottom:14px; display:flex; align-items:center; justify-content:space-between; gap:10px; }
+  .link-box a{ color:var(--teal); font-size:12px; font-family:var(--font-mono); text-decoration:none; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .link-box a:hover{ text-decoration:underline; }
 
   .toast{ position:fixed; bottom:20px; left:50%; transform:translateX(-50%); background:var(--surface); border:1px solid var(--border-strong); padding:10px 18px; border-radius:8px; font-size:13px; z-index:100; opacity:0; transition:opacity .2s ease; pointer-events:none; }
   .toast.show{ opacity:1; }
@@ -251,10 +275,18 @@
         <option value="maintenance">maintenance</option>
         <option value="documentation">documentation</option>
         <option value="testing">testing</option>
+        <option value="frontend">frontend</option>
+        <option value="backend">backend</option>
+        <option value="database">database</option>
       </select>
+      <div class="subtoggle">
+        <button id="viewKanbanBtn" class="active">Kanban</button>
+        <button id="viewTableBtn">Table</button>
+      </div>
       <button class="primary" id="newTicketBtn" style="margin-left:auto;">+ New ticket</button>
     </div>
     <div class="board" id="board"></div>
+    <div class="table-wrap hidden" id="ticketTable"></div>
   </div>
 
   <!-- DASHBOARD VIEW -->
@@ -314,7 +346,7 @@ const STATUSES = [
 ];
 const PRIORITIES = ['critical','high','medium','low'];
 const PRIORITY_COLOR = { critical:'var(--red)', high:'var(--accent)', medium:'var(--blue)', low:'var(--teal)' };
-const ALL_LABELS = ['bug','feature','security','maintenance','documentation','testing'];
+const ALL_LABELS = ['bug','feature','security','maintenance','documentation','testing','frontend','backend','database'];
 
 let tickets = [];
 let filters = { search: '', priority: '', label: '' };
@@ -324,6 +356,8 @@ let ticketsUnsub = null, allowlistUnsub = null, requestsUnsub = null, ownRequest
 let allowlistCache = [];
 let requestsCache = [];
 let currentTab = 'board';
+let boardViewMode = 'kanban';
+let tableSort = { key: 'createdAt', dir: 'desc' };
 
 const board = document.getElementById('board');
 const toastEl = document.getElementById('toast');
@@ -538,9 +572,12 @@ function openAccountModal(){
 function attachTicketsListener(){
   ticketsUnsub = db.collection('tickets').orderBy('createdAt', 'desc').onSnapshot(snap => {
     tickets = snap.docs.map(d => ({ firestoreId: d.id, ...d.data() }));
-    if(currentTab === 'board') renderBoard();
+    if(currentTab === 'board') renderBoardView();
     if(currentTab === 'dashboard') renderDashboard();
   }, err => showToast('Sync error: ' + err.message));
+}
+function renderBoardView(){
+  if(boardViewMode === 'kanban') renderBoard(); else renderTable();
 }
 function nextTicketNumber(){
   let max = 0;
@@ -550,7 +587,9 @@ function nextTicketNumber(){
 function ticketId(num){ return 'TASK-' + String(num).padStart(3,'0'); }
 function initials(name){
   if(!name) return '—';
-  const parts = name.trim().split(/\s+/);
+  const local = name.includes('@') ? name.split('@')[0] : name;
+  const parts = local.trim().split(/[\s._-]+/).filter(Boolean);
+  if(parts.length === 0) return '—';
   return (parts[0][0] + (parts[1] ? parts[1][0] : '')).toUpperCase();
 }
 function isOverdue(dateStr, status){
@@ -588,6 +627,87 @@ function renderBoard(){
   });
 }
 
+const TABLE_COLUMNS = [
+  { key: 'id', label: 'ID' },
+  { key: 'title', label: 'Title' },
+  { key: 'status', label: 'Status' },
+  { key: 'priority', label: 'Priority' },
+  { key: 'owner', label: 'Owner' },
+  { key: 'reviewer', label: 'Reviewer' },
+  { key: 'labels', label: 'Labels' },
+  { key: 'dueDate', label: 'Due' }
+];
+
+function sortTickets(rows, sort){
+  const dir = sort.dir === 'asc' ? 1 : -1;
+  return rows.slice().sort((a, b) => {
+    let av = a[sort.key], bv = b[sort.key];
+    if(sort.key === 'labels'){ av = (a.labels||[]).join(','); bv = (b.labels||[]).join(','); }
+    if(sort.key === 'status'){ av = STATUSES.findIndex(s => s.key === a.status); bv = STATUSES.findIndex(s => s.key === b.status); }
+    if(sort.key === 'priority'){ av = PRIORITIES.indexOf(a.priority); bv = PRIORITIES.indexOf(b.priority); }
+    if(av == null || av === '') av = sort.key === 'dueDate' || sort.key === 'createdAt' ? '9999' : '';
+    if(bv == null || bv === '') bv = sort.key === 'dueDate' || sort.key === 'createdAt' ? '9999' : '';
+    if(typeof av === 'string') av = av.toLowerCase();
+    if(typeof bv === 'string') bv = bv.toLowerCase();
+    if(av < bv) return -1 * dir;
+    if(av > bv) return 1 * dir;
+    return 0;
+  });
+}
+
+function renderTable(){
+  const container = document.getElementById('ticketTable');
+  const rows = sortTickets(tickets.filter(matchesFilters), tableSort);
+  if(rows.length === 0){
+    container.innerHTML = '<div class="dash-empty">No tickets match your filters.</div>';
+    return;
+  }
+  container.innerHTML = `
+    <table class="ticket-table">
+      <thead><tr>${TABLE_COLUMNS.map(c => `<th data-key="${c.key}">${c.label}${tableSort.key===c.key ? (tableSort.dir==='asc' ? ' ▲' : ' ▼') : ''}</th>`).join('')}</tr></thead>
+      <tbody>${rows.map(tableRowHtml).join('')}</tbody>
+    </table>`;
+  container.querySelectorAll('th').forEach(th => th.addEventListener('click', () => {
+    const key = th.dataset.key;
+    if(tableSort.key === key) tableSort.dir = tableSort.dir === 'asc' ? 'desc' : 'asc';
+    else { tableSort.key = key; tableSort.dir = 'asc'; }
+    renderTable();
+  }));
+  container.querySelectorAll('tr[data-fid]').forEach(tr => tr.addEventListener('click', () => openDetail(tr.dataset.fid)));
+}
+
+function tableRowHtml(t){
+  const statusLabel = (STATUSES.find(s => s.key === t.status) || {}).label || t.status;
+  const overdue = isOverdue(t.dueDate, t.status);
+  return `<tr data-fid="${t.firestoreId}">
+    <td class="mono">${t.id}</td>
+    <td>${escapeHtml(t.title)}</td>
+    <td>${statusLabel}</td>
+    <td><span class="priority-pill p-${t.priority}">${t.priority}</span></td>
+    <td>${escapeHtml(t.owner) || '—'}</td>
+    <td>${escapeHtml(t.reviewer) || '—'}</td>
+    <td>${(t.labels||[]).map(l => `<span class="chip">${l}</span>`).join(' ') || '—'}</td>
+    <td class="${overdue ? 'due overdue' : 'due'}">${t.dueDate ? formatDate(t.dueDate) : '—'}</td>
+  </tr>`;
+}
+
+document.getElementById('viewKanbanBtn').addEventListener('click', () => {
+  boardViewMode = 'kanban';
+  document.getElementById('viewKanbanBtn').classList.add('active');
+  document.getElementById('viewTableBtn').classList.remove('active');
+  document.getElementById('board').classList.remove('hidden');
+  document.getElementById('ticketTable').classList.add('hidden');
+  renderBoard();
+});
+document.getElementById('viewTableBtn').addEventListener('click', () => {
+  boardViewMode = 'table';
+  document.getElementById('viewTableBtn').classList.add('active');
+  document.getElementById('viewKanbanBtn').classList.remove('active');
+  document.getElementById('board').classList.add('hidden');
+  document.getElementById('ticketTable').classList.remove('hidden');
+  renderTable();
+});
+
 function renderCard(t){
   const card = document.createElement('div');
   card.className = 'card';
@@ -609,6 +729,45 @@ function renderCard(t){
 /* ---------------- NEW TICKET ---------------- */
 document.getElementById('newTicketBtn').addEventListener('click', () => openTicketForm(null));
 
+function comboHtml(fieldId, label, currentValue, placeholder){
+  return `
+    <div class="field">
+      <label>${label}</label>
+      <div class="combo">
+        <input type="text" class="combo-input" id="${fieldId}-input" autocomplete="off" value="${currentValue ? escapeHtml(currentValue) : ''}" placeholder="${placeholder}">
+        <input type="hidden" id="${fieldId}" value="${currentValue ? escapeHtml(currentValue) : ''}">
+        <div class="combo-list hidden" id="${fieldId}-list"></div>
+      </div>
+    </div>`;
+}
+
+function wireCombo(fieldId){
+  const input = document.getElementById(fieldId + '-input');
+  const hidden = document.getElementById(fieldId);
+  const list = document.getElementById(fieldId + '-list');
+
+  function renderList(query){
+    const q = (query || '').toLowerCase();
+    const matches = allowlistCache.filter(u => u.id.toLowerCase().includes(q));
+    let html = `<div class="combo-item" data-val="">— Unassigned —</div>`;
+    matches.forEach(u => { html += `<div class="combo-item" data-val="${u.id}"><span>${u.id}</span><span class="chip">${u.role}</span></div>`; });
+    if(matches.length === 0) html += '<div class="combo-empty">No teammate matches — you can still type a free-text name</div>';
+    list.innerHTML = html;
+    list.classList.remove('hidden');
+    list.querySelectorAll('.combo-item[data-val]').forEach(item => {
+      item.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        const val = item.getAttribute('data-val');
+        hidden.value = val; input.value = val;
+        list.classList.add('hidden');
+      });
+    });
+  }
+  input.addEventListener('focus', () => renderList(input.value));
+  input.addEventListener('input', () => { hidden.value = input.value; renderList(input.value); });
+  input.addEventListener('blur', () => { setTimeout(() => list.classList.add('hidden'), 120); });
+}
+
 function ticketFormHtml(t){
   const labels = (t && t.labels) || [];
   return `
@@ -623,9 +782,10 @@ function ticketFormHtml(t){
       <div class="field"><label>Due date</label><input type="date" id="f-due" value="${t && t.dueDate ? t.dueDate : ''}"></div>
     </div>
     <div class="row2">
-      <div class="field"><label>Owner</label><input type="text" id="f-owner" value="${t ? escapeHtml(t.owner) : ''}" placeholder="firstname lastname"></div>
-      <div class="field"><label>Reviewer</label><input type="text" id="f-reviewer" value="${t ? escapeHtml(t.reviewer) : ''}" placeholder="firstname lastname"></div>
+      ${comboHtml('f-owner', 'Owner', t ? t.owner : '', 'Search teammate...')}
+      ${comboHtml('f-reviewer', 'Reviewer', t ? t.reviewer : '', 'Search teammate...')}
     </div>
+    <div class="field"><label>Merge request / issue link (optional)</label><input type="text" id="f-link" value="${t && t.linkUrl ? escapeHtml(t.linkUrl) : ''}" placeholder="https://github.com/org/repo/pull/123"></div>
     <div class="field"><label>Labels</label>
       <div class="label-check-group" id="f-labels">
         ${ALL_LABELS.map(l => `<label class="label-check"><input type="checkbox" value="${l}" ${labels.includes(l) ? 'checked':''}> ${l}</label>`).join('')}
@@ -644,6 +804,8 @@ function openTicketForm(existing){
       <div class="modal-actions"><button id="cancelForm">Cancel</button><button class="primary" id="saveForm">${isEdit ? 'Save changes' : 'Create ticket'}</button></div>
     </div>`;
   document.body.appendChild(overlay);
+  wireCombo('f-owner');
+  wireCombo('f-reviewer');
   const close = () => overlay.remove();
   overlay.addEventListener('click', e => { if(e.target === overlay) close(); });
   overlay.querySelector('#closeForm').addEventListener('click', close);
@@ -660,6 +822,7 @@ function openTicketForm(existing){
       dueDate: overlay.querySelector('#f-due').value,
       owner: overlay.querySelector('#f-owner').value.trim(),
       reviewer: overlay.querySelector('#f-reviewer').value.trim(),
+      linkUrl: overlay.querySelector('#f-link').value.trim(),
       labels
     };
     try{
@@ -708,6 +871,7 @@ function openDetail(firestoreId){
         <button class="danger" id="deleteTicket">Delete</button>
         <button id="editTicket">Edit</button>
       </div>
+      ${t.linkUrl ? `<div class="link-box"><a href="${escapeHtml(t.linkUrl)}" target="_blank" rel="noopener noreferrer">${escapeHtml(t.linkUrl)}</a><span style="font-size:11px; color:var(--text-muted);">open ↗</span></div>` : ''}
       <div class="comments">
         <h4>Comments</h4>
         <div id="commentList"></div>
@@ -759,10 +923,23 @@ function openDetail(firestoreId){
         commentList.innerHTML = '<div class="comment-empty">No comments yet.</div>';
         return;
       }
+      const myEmail = (currentUser.email || '').toLowerCase();
       commentList.innerHTML = snap.docs.map(d => {
         const c = d.data();
-        return `<div class="comment"><div class="comment-head"><span>${escapeHtml(c.author)}</span><span>${formatDateTime(c.createdAt)}</span></div><div class="comment-body">${escapeHtml(c.text)}</div></div>`;
+        const canDelete = currentRole === 'admin' || currentRole === 'pm' || (c.author && c.author.toLowerCase() === myEmail);
+        return `<div class="comment">
+          <div class="comment-head"><span>${escapeHtml(c.author)}</span><span>${formatDateTime(c.createdAt)}</span></div>
+          <div class="comment-body">${escapeHtml(c.text)}</div>
+          ${canDelete ? `<button class="ghost small comment-delete" data-id="${d.id}">Delete</button>` : ''}
+        </div>`;
       }).join('');
+      commentList.querySelectorAll('.comment-delete').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          if(!confirm('Delete this comment? This cannot be undone.')) return;
+          try{ await db.collection('tickets').doc(firestoreId).collection('comments').doc(btn.dataset.id).delete(); }
+          catch(e){ showToast('Could not delete comment: ' + e.message); }
+        });
+      });
     }, err => { commentList.innerHTML = '<div class="comment-empty">Could not load comments.</div>'; });
 
   overlay.querySelector('#postComment').addEventListener('click', async () => {
@@ -938,9 +1115,9 @@ function renderRequests(requests){
 }
 
 /* ---------------- FILTERS ---------------- */
-document.getElementById('searchInput').addEventListener('input', e => { filters.search = e.target.value; renderBoard(); });
-document.getElementById('priorityFilter').addEventListener('change', e => { filters.priority = e.target.value; renderBoard(); });
-document.getElementById('labelFilter').addEventListener('change', e => { filters.label = e.target.value; renderBoard(); });
+document.getElementById('searchInput').addEventListener('input', e => { filters.search = e.target.value; renderBoardView(); });
+document.getElementById('priorityFilter').addEventListener('change', e => { filters.priority = e.target.value; renderBoardView(); });
+document.getElementById('labelFilter').addEventListener('change', e => { filters.label = e.target.value; renderBoardView(); });
 </script>
 </body>
 </html>

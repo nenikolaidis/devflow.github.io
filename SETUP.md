@@ -78,17 +78,19 @@ Rules only let admins add other people — so you need to add yourself directly,
 
 ## What's included
 
-- **Board** — the kanban workflow from before (Backlog → Todo → In progress → Code review → Testing → Done), with search and filters.
+- **Board** — kanban view (Backlog → Todo → In progress → Code review → Testing → Done) *and* a sortable **Table** view (click any column header to sort), both respecting the same search/priority/label filters.
+- **Labels** — bug, feature, security, maintenance, documentation, testing, frontend, backend, database. Multi-select on any ticket.
+- **Assignee search** — Owner and Reviewer are now a searchable dropdown pulled from your approved team roster (type to filter); you can still type a free-text name if someone doesn't have an account yet.
+- **Merge request / issue link** — an optional URL field on each ticket, shown as a clickable link above the comments section.
+- **Comments** — with delete (your own comments, or any comment if you're an Admin/PM), with a confirmation prompt first.
 - **Dashboard** — total/open/overdue ticket counts, completion rate, breakdowns by status and priority, and a per-owner table.
 - **Team tab** (admins only) — approve or deny access requests, add people directly, change anyone's role, or remove them.
-- **Ticket edits** — any approved user can now edit a ticket's details after creation, not just move its status.
-- **Comments** — a lightweight discussion thread on each ticket.
-- **Account menu** — change your password in-app (needs your current password), or use "Forgot password?" on the login screen to get a reset email.
+- **Account menu** — change your password in-app, or use "Forgot password?" on the login screen for a reset email.
 
 ## Notes
 
 - **Costs**: Firebase's free "Spark" plan comfortably covers a small team's ticket board — no credit card required.
 - **Roles**: Administrator and Project manager can delete tickets; everyone approved can create, view, edit, comment on, and move tickets, matching the access rules in your process doc.
-- **If you already deployed the earlier version**: re-publish the updated `firestore.rules` (it now also covers `accessRequests` and ticket `comments`), then replace `index.html` with the new one — your existing tickets and allow list carry over untouched.
+- **If you already deployed an earlier version**: re-publish the updated `firestore.rules` — it now also lets approved users read the full team roster (needed for the assignee dropdown) and lets comment authors/Admins/PMs delete comments. Then replace `index.html`. Your existing tickets and allow list carry over untouched.
 - **Losing admin access**: you can always fix roles directly in the Firestore console under the `allowlist` collection.
 - **This is not the same as a real Jira/GitHub Issues setup** — there's no audit log, webhooks, or Git integration. It's a lightweight tool matching your documented process.
