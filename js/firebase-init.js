@@ -5,14 +5,14 @@
    so the global `firebase` object is already available here.)
 ========================================================= */
 const firebaseConfig = {
-  apiKey: "AIzaSyCTiYrR3FebkzgY3tiXYgdXc8JzBNjxWS0",
-  authDomain: "devflow-board.firebaseapp.com",
-  projectId: "devflow-board",
-  storageBucket: "devflow-board.firebasestorage.app",
-  messagingSenderId: "942324710281",
-  appId: "1:942324710281:web:cceebc5f5375b2198f3f58",
-  measurementId: "G-X8F5EWNXC6"
+  apiKey: "AIzaSyDU6gphWwsBhGBx5XXmiBg07frrBkHriZM",
+  authDomain: "devflow-board-b45c1.firebaseapp.com",
+  projectId: "devflow-board-b45c1",
+  storageBucket: "devflow-board-b45c1.firebasestorage.app",
+  messagingSenderId: "80877882513",
+  appId: "1:80877882513:web:521270b5460359c8c6c330"
 };
+
 firebase.initializeApp(firebaseConfig);
 
 const auth = firebase.auth();
